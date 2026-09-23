@@ -31,3 +31,7 @@ Create PostgreSQL, copy `.env.example` values into your shell/environment, then:
     python realtime_server.py
 
 Open `http://localhost:8765/` and `http://localhost:8765/driver`.
+
+## Migration startup order
+Railway starts the service with `python migrate.py && python realtime_server.py`.
+The migration runner must complete successfully before the web server starts. Keep the `migrations/` folder in the repository root alongside `migrate.py`.

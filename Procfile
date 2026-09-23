@@ -1,1 +1,1 @@
-web: python realtime_server.py
+web: python migrate.py && python realtime_server.py

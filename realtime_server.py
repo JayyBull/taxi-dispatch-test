@@ -27,22 +27,23 @@ def startup():
     if not DATABASE_URL: raise SystemExit('STARTUP CHECK FAILED: DATABASE_URL is required')
     try:
         with db() as c:
-            c.execute('SELECT 1')
-            c.execute('CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())')
-            applied={r['version'] for r in c.execute('SELECT version FROM schema_migrations').fetchall()}
-            for f in sorted((BASE/'migrations').glob('*.sql')):
-                if f.name in applied: continue
-                c.execute(f.read_text()); c.execute('INSERT INTO schema_migrations(version) VALUES (%s)',(f.name,))
-        with db() as c:
+            required=('drivers','driver_sessions','bookings','driver_offers','job_status_history')
+            missing=[]
+            for table in required:
+                if c.execute('SELECT to_regclass(%s) AS t',(f'public.{table}',)).fetchone()['t'] is None:
+                    missing.append(table)
+            if missing:
+                raise RuntimeError('database migrations have not created: '+', '.join(missing))
             n=c.execute('SELECT count(*) AS n FROM drivers').fetchone()['n']
             if n==0:
                 for call,(name,pin) in DEFAULT_DRIVERS.items():
-                    s,h=hash_pin(pin); c.execute('INSERT INTO drivers(callsign,name,pin_salt,pin_hash,enabled) VALUES (%s,%s,%s,%s,true)',(call,name,s,h))
-        with db() as c:
+                    salt,digest=hash_pin(pin)
+                    c.execute('INSERT INTO drivers(callsign,name,pin_salt,pin_hash,enabled) VALUES (%s,%s,%s,%s,true)',(call,name,salt,digest))
             c.execute("DELETE FROM driver_sessions WHERE expires_at <= now()")
             c.execute("UPDATE driver_offers SET status='timed_out',responded_at=now() WHERE status='offered' AND expires_at<=now()")
-        print('Startup checks passed: PostgreSQL reachable, migrations current, persistent state ready.')
-    except Exception as e: raise SystemExit(f'STARTUP CHECK FAILED: {e}')
+        print('Startup checks passed: PostgreSQL reachable, schema ready, persistent state ready.', flush=True)
+    except Exception as e:
+        raise SystemExit(f'STARTUP CHECK FAILED: {e}')
 
 def verify_pin(call,pin):
     with db() as c:d=c.execute('SELECT pin_salt,pin_hash,enabled FROM drivers WHERE callsign=%s',(call,)).fetchone()
